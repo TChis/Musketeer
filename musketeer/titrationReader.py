@@ -24,6 +24,7 @@ Params = namedtuple(
 predefinedParams = {
     "UV-Vis": Params(True, "Abs", "AU", "λ", "nm"),
     "NMR": Params(False, "δ", "ppm"),
+    "Fluorescence": Params(True, "Intensity", "AU", "λ", "nm"),
     "Continuous": Params(True),
     "Discrete": Params(False),
 }
@@ -111,6 +112,44 @@ def readUV(filePath):
     titration.title = os.path.basename(filePath)
     # set default parameters for UV-Vis titrations
     fillPredefinedParams(titration, predefinedParams["UV-Vis"])
+
+    with open(filePath, "r", newline="") as inFile:
+
+        reader = csv.reader(inFile)
+
+        titleRow = next(reader)[::2]
+        # the title row can contain an extra blank entry, this gets rid of it
+        if not titleRow[-1]:
+            titleRow.pop(-1)
+
+        wavelengths = []
+        absorbances = []
+        # skip the column name row
+        next(reader)
+        for row in reader:
+            if not row or not row[0]:
+                break
+            wavelengths.append(row[0])
+            absorbances.append(row[1::2])
+
+    titration.additionTitles = np.array(titleRow)
+    titration.signalTitles = np.array(wavelengths, dtype=float)
+    averageStep = abs(np.average(np.diff(titration.signalTitles)))
+    titration.signalTitlesDecimals = int(-np.rint(np.log10(averageStep)))
+    titration.signalTitles = np.round(
+        titration.signalTitles, titration.signalTitlesDecimals
+    )
+    # transpose data so that the column is the wavelength
+    titration.rawData = np.array(absorbances, dtype=float).T
+
+    return [titration]
+
+
+def readFluorescence(filePath):
+    titration = Titration()
+    titration.title = os.path.basename(filePath)
+    # set default parameters for UV-Vis titrations
+    fillPredefinedParams(titration, predefinedParams["Fluorescence"])
 
     with open(filePath, "r", newline="") as inFile:
 
@@ -482,5 +521,6 @@ def readNMR(filePath):
 fileReaders = {
     "UV-Vis csv file": readUV,
     "NMR peak list": readNMR,
+    "Fluorescence csv file": readFluorescence,
     "Universal csv file": readCSV,
 }
