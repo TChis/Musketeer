@@ -148,13 +148,11 @@ def readUV(filePath):
 
 # This function is for reading files from the fluorimeter exported as 3D ascii csv files
 def readFluorescence(filePath):
-    df_input = pd.read_csv(filePath)
-
-    # this function cleans up the dataframe, getting rid of useless rows and the settigs
-    #   detail from the 3D ascii file format
+    # -this function cleans up the dataframe
+    # -removes useless rows and the settings information from the 3D ascii file format
     def cleanDataframe(df):
         # get indices of first NaN
-        y = df_input.iloc[2:, 0][df_input.iloc[2:, 0].isna()].index[0]
+        y = df.iloc[2:, 0][df.iloc[2:, 0].isna()].index[0]
         n = len(df) - y
         # first row has the headings we want to use for each column. Row after that is
         #   useless.
@@ -169,66 +167,34 @@ def readFluorescence(filePath):
         # convert df to numeric
         df.apply(pd.to_numeric)
 
-    cleanDataframe(df_input)
-
-    # getting a numpy array of wavelengths
-    wavelengths = np.array(df_input.wavelength, dtype=float)
-
-    # getting the titles of each spectra
-    titleRow = list(df_input.columns)
-    # declaring an array to store the sample ids
-    sample_ids = []
-
-    # determine how many samples are present, with the first two characters in the title
-    #   being the sample id
-    # this code assumes all samples are measured for the first titration point
-    for title in titleRow[1:]:
-        iden = title[0:2]
-        if iden in sample_ids:
-            break
+    # -this function checks if the column titles are in the format "sx_ypyy"
+    # -if they are, return True (indicating column titles need to be changed)
+    def checkTitles(df):
+        addition_titles = df.columns
+        # if both "_" and "p" are in every index title, the "sx_ypyy" format was
+        #   probably used and needs to be converted
+        if sum([(("_" and "p") in a) for a in addition_titles]) == len(addition_titles):
+            return True
         else:
-            sample_ids.append(iden)
+            return False
 
-    # I often title my spectra in the form of "sx_ypyy". These functions convert this to
-    #   "sx y.yy uL"
-    def strMod(s):
-        s = s.replace("_", " ")
-        s = s.replace("p", ".")
-        s = "".join((s, " uL"))
-        return s
-
-    # convert the row titles using strMod
-    def convertIndex(additionTitles):
-        # this checks if both "_" and "p" are in every index title. If so, I've probably
-        #   used the "sx_ypyy" format and we should convert this to Daniil's format
-        if sum([(("_" and "p") in a) for a in additionTitles]) == len(additionTitles):
-            volSeries = list(map(strMod, additionTitles))
-        else:
-            volSeries = additionTitles
-        return toCumVol(volSeries)
-
-    # converts a series of volume additions to a series of cumulative volume added
-    # series of volume additions are given as "sx y.yy uL". There is a bit of redundancy
-    # between this function and strMod, but keeping them separate might be useful to
-    #   give more flexibility in the future
-    def toCumVol(volSeries):
-        # regex sorcery to easily get the floats out of strings
-        additions = [re.findall("[+-]?\d+\.\d+", title)[0] for title in volSeries]
-        # all titles should be of the same sample at this point, so this code is just
-        #   getting the sample id from the first entry. There's probably a smarter way
-        #   of handling this
-        sample_id = volSeries[0][:3]
-        tempEntry = 0
-        cumVal = 0
-        cumVol = []
+    # -converts column titles from "sx_ypyy" to "sx z.zz uL" where the volume is now
+    #   cumulative
+    def changeTitles(df):
+        # convert "sx_ypyy" to "sx y.yy"
+        vols_added = [entry.replace("p", ".").split("_") for entry in df.columns.values]
+        # then convert individual additions "y.yy" to cumulative volume added "z.zz"
+        temp_entry = 0
+        cum_val = 0
+        cum_vol = []
         # if two subsequent spectra have the same volume in the title, then the n+1
-        #   spectra is a retake of the n spectra. so, don't add any more at this row
-        for entry in additions:
-            if entry != tempEntry:
-                cumVal = float(entry) + float(cumVal)
-            tempEntry = entry
-            cumVol.append(sample_id + str(cumVal) + " uL")
-        return cumVol
+        #   spectra is a retake of the n spectra. So, don't add any more at this row
+        for [sample_id, vol_added] in vols_added:
+            if vol_added != temp_entry:
+                cum_val = float(vol_added) + float(cum_val)
+            temp_entry = vol_added
+            cum_vol.append(sample_id + " " + str(cum_val) + " uL")
+        return cum_vol
 
     # this function extracts all the spectra for a given sample from a df, assuming the
     #   id is two characters
@@ -236,7 +202,32 @@ def readFluorescence(filePath):
         outBool = [(word[0:2] == sample_id) for word in titleRow]
         return df.iloc[:, outBool]
 
-    # make a dictionary to store the data for each titration in separate dataframes
+    # read in our .csv file
+    df_input = pd.read_csv(filePath)
+
+    # clean the raw 3D ascii .csv file
+    cleanDataframe(df_input)
+
+    # save a numpy array of wavelengths
+    wavelengths = np.array(df_input.wavelength, dtype=float)
+
+    # get the titles of each spectra
+    titleRow = list(df_input.columns)
+
+    # declare an array to store the sample ids
+    sample_ids = []
+
+    # determine how many samples are present, with the first two characters in the title
+    #   being the sample id
+    # (this assumes all samples are measured for the first titration point)
+    for title in titleRow[1:]:
+        iden = title[0:2]
+        if iden in sample_ids:
+            break
+        else:
+            sample_ids.append(iden)
+
+    # store the data for each titration in separate dataframes inside a dict
     df_sep = {}
     for key in sample_ids:
         df_sep[key] = extractFromDf(df_input, key)
@@ -252,23 +243,30 @@ def readFluorescence(filePath):
     titrations = []
 
     # for each sample, perform a baseline correction and drop control/blank columns (ie.
-    #   PBSonly, ThTonly)
+    #   PBSonly, ThTonly), and create a Titration object
     for key in df_sep:
 
         # creating titration object
         titration = Titration()
         titration.title = os.path.basename(filePath)
-        # set default parameters for UV-Vis titrations
-        fillPredefinedParams(titration, predefinedParams["UV-Vis"])
 
+        # set default parameters for fluorescence titrations
+        fillPredefinedParams(titration, predefinedParams["Fluorescence"])
+
+        # baseline correct the spectra
         df_sep[key] = baseline_correct(df_sep[key])
-        # this drops columns not contributing to the titration, ie. "PBSonly" or "
-        #   ThTonly"
+        # this drops columns not contributing to the titration, ie. "PBSonly" or
+        #   "ThTonly"
         blank_cols = [(a[-4:] == "only") for a in df_sep[key].columns]
         df_sep[key].drop(columns=df_sep[key].columns[blank_cols], inplace=True)
 
+        # check if the column headings are in the the correct "sx y.yy uL" format. If
+        #   not, change the column headings
+        if checkTitles(df_sep[key]):
+            df_sep[key].columns = changeTitles(df_sep[key])
+
         # adding data to titration objects
-        titration.additionTitles = np.array(convertIndex(df_sep[key].columns))
+        titration.additionTitles = np.array(df_sep[key].columns)
         titration.signalTitles = wavelengths
         averageStep = abs(np.average(np.diff(titration.signalTitles)))
         titration.signalTitlesDecimals = int(-np.rint(np.log10(averageStep)))
