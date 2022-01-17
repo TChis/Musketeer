@@ -260,8 +260,6 @@ def readFluorescence(filePath):
 
         # transpose data so that the column is the wavelength
         titration.rawData = np.array(df_sep[key], dtype=float).T
-        print("FLR")
-        print(titration.signalTitles)
         titrations.append(titration)
     return titrations
 
@@ -302,7 +300,7 @@ class CSVPopup(tk.Toplevel):
             None,
             *predefinedParams.keys(),
             style="Outline.TMenubutton",
-            command=self.setParams
+            command=self.setParams,
         )
         optionMenu.configure(width=max([len(s) for s in predefinedParams]) + 1)
         optionMenu.pack(pady=2.5)
