@@ -181,7 +181,13 @@ def readFluorescence(filePath):
             if float(vol_added) != temp_entry:
                 cum_val += float(vol_added)
             temp_entry = vol_added
-            cum_vol.append(f"{sample_id} {cum_val:g} uL")
+            title = f"{sample_id} {cum_val:g} uL"
+            # ensure unique addition titles
+            repeat_count = 0
+            while title in cum_vol:
+                repeat_count += 1
+                title = f"{sample_id} {cum_val:g} uL repeat {repeat_count}"
+            cum_vol.append(title)
         return cum_vol
 
     # this function extracts all the spectra for a given sample from a df, assuming the
