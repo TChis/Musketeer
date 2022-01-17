@@ -162,13 +162,9 @@ def readFluorescence(filePath):
     # -this function checks if the column titles are in the format "sx_ypyy"
     # -if they are, return True (indicating column titles need to be changed)
     def checkTitles(df):
-        addition_titles = df.columns
         # if both "_" and "p" are in every index title, the "sx_ypyy" format was
         #   probably used and needs to be converted
-        if sum([(("_" and "p") in a) for a in addition_titles]) == len(addition_titles):
-            return True
-        else:
-            return False
+        return sum([(("_" and "p") in a) for a in df.columns]) == len(df.columns)
 
     # -converts column titles from "sx_ypyy" to "sx z.zz uL" where the volume is now
     #   cumulative
