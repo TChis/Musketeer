@@ -162,13 +162,9 @@ def readFluorescence(filePath):
     # -this function checks if the column titles are in the format "sx_ypyy"
     # -if they are, return True (indicating column titles need to be changed)
     def checkTitles(df):
-        addition_titles = df.columns
         # if both "_" and "p" are in every index title, the "sx_ypyy" format was
         #   probably used and needs to be converted
-        if sum([(("_" and "p") in a) for a in addition_titles]) == len(addition_titles):
-            return True
-        else:
-            return False
+        return sum([(("_" and "p") in a) for a in df.columns]) == len(df.columns)
 
     # -converts column titles from "sx_ypyy" to "sx z.zz uL" where the volume is now
     #   cumulative
@@ -181,11 +177,17 @@ def readFluorescence(filePath):
         cum_vol = []
         # if two subsequent spectra have the same volume in the title, then the n+1
         #   spectra is a retake of the n spectra. So, don't add any more at this row
-        for [sample_id, vol_added] in vols_added:
-            if vol_added != temp_entry:
-                cum_val = float(vol_added) + float(cum_val)
+        for (sample_id, vol_added) in vols_added:
+            if float(vol_added) != temp_entry:
+                cum_val += float(vol_added)
             temp_entry = vol_added
-            cum_vol.append(sample_id + " " + str(cum_val) + " uL")
+            title = f"{sample_id} {cum_val:g} uL"
+            # ensure unique addition titles
+            repeat_count = 0
+            while title in cum_vol:
+                repeat_count += 1
+                title = f"{sample_id} {cum_val:g} uL repeat {repeat_count}"
+            cum_vol.append(title)
         return cum_vol
 
     # this function extracts all the spectra for a given sample from a df, assuming the
@@ -256,15 +258,8 @@ def readFluorescence(filePath):
         titration.additionTitles = np.array(df_sep[key].columns)
         titration.signalTitles = wavelengths
 
-        averageStep = abs(np.average(np.diff(titration.signalTitles)))
-        titration.signalTitlesDecimals = int(-np.rint(np.log10(averageStep)))
-        titration.signalTitles = np.round(
-            titration.signalTitles, titration.signalTitlesDecimals
-        )
         # transpose data so that the column is the wavelength
         titration.rawData = np.array(df_sep[key], dtype=float).T
-        print("FLR")
-        print(titration.signalTitles)
         titrations.append(titration)
     return titrations
 
@@ -305,7 +300,7 @@ class CSVPopup(tk.Toplevel):
             None,
             *predefinedParams.keys(),
             style="Outline.TMenubutton",
-            command=self.setParams
+            command=self.setParams,
         )
         optionMenu.configure(width=max([len(s) for s in predefinedParams]) + 1)
         optionMenu.pack(pady=2.5)
