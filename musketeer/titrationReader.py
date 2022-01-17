@@ -181,11 +181,11 @@ def readFluorescence(filePath):
         cum_vol = []
         # if two subsequent spectra have the same volume in the title, then the n+1
         #   spectra is a retake of the n spectra. So, don't add any more at this row
-        for [sample_id, vol_added] in vols_added:
-            if vol_added != temp_entry:
-                cum_val = float(vol_added) + float(cum_val)
+        for (sample_id, vol_added) in vols_added:
+            if float(vol_added) != temp_entry:
+                cum_val += float(vol_added)
             temp_entry = vol_added
-            cum_vol.append(sample_id + " " + str(cum_val) + " uL")
+            cum_vol.append(f"{sample_id} {cum_val:g} uL")
         return cum_vol
 
     # this function extracts all the spectra for a given sample from a df, assuming the
