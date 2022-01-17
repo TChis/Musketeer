@@ -256,11 +256,6 @@ def readFluorescence(filePath):
         titration.additionTitles = np.array(df_sep[key].columns)
         titration.signalTitles = wavelengths
 
-        averageStep = abs(np.average(np.diff(titration.signalTitles)))
-        titration.signalTitlesDecimals = int(-np.rint(np.log10(averageStep)))
-        titration.signalTitles = np.round(
-            titration.signalTitles, titration.signalTitlesDecimals
-        )
         # transpose data so that the column is the wavelength
         titration.rawData = np.array(df_sep[key], dtype=float).T
         print("FLR")
