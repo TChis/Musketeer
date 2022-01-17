@@ -18,8 +18,8 @@ from .style import padding
 
 Params = namedtuple(
     "Params",
-    ("continuous", "yQuantity", "yUnit", "xQuantity", "xUnit"),
-    defaults=[None] * 4,
+    ("yQuantity", "yUnit", "xQuantity", "xUnit"),
+    defaults=[""] * 4,
 )
 
 predefinedParams = {
@@ -134,12 +134,8 @@ def readUV(filePath):
             absorbances.append(row[1::2])
 
     titration.additionTitles = np.array(titleRow)
-    titration.signalTitles = np.array(wavelengths, dtype=float)
-    averageStep = abs(np.average(np.diff(titration.signalTitles)))
-    titration.signalTitlesDecimals = int(-np.rint(np.log10(averageStep)))
-    titration.signalTitles = np.round(
-        titration.signalTitles, titration.signalTitlesDecimals
-    )
+    titration.signalTitles = wavelengths
+
     # transpose data so that the column is the wavelength
     titration.rawData = np.array(absorbances, dtype=float).T
 
@@ -324,41 +320,29 @@ class CSVPopup(tk.Toplevel):
         paramsFrame = ttk.Frame(frame)
         paramsFrame.pack(expand=True, fill="both", pady=2.5)
 
-        self.continuous = tk.BooleanVar(self, False)
-        self.continuous.trace_add("write", self.toggleContinuous)
-        self.continuousWidget = ttk.Checkbutton(
-            paramsFrame, text="Continuous signals", variable=self.continuous
-        )
-        self.continuousWidget.grid(row=0, column=0, columnspan=2)
-
         self.yQuantityLabel = ttk.Label(paramsFrame, text="Measured quantity:")
-        self.yQuantityLabel.grid(row=1, column=0, sticky="w")
+        self.yQuantityLabel.grid(row=0, column=0, sticky="w")
         self.yUnitLabel = ttk.Label(paramsFrame, text="Unit:")
-        self.yUnitLabel.grid(row=1, column=1, sticky="w")
+        self.yUnitLabel.grid(row=0, column=1, sticky="w")
         self.yQuantity = tk.StringVar(self)
         self.yUnit = tk.StringVar(self)
         self.yQuantityWidget = ttk.Entry(paramsFrame, textvariable=self.yQuantity)
-        self.yQuantityWidget.grid(row=2, column=0, sticky="w")
+        self.yQuantityWidget.grid(row=1, column=0, sticky="w")
         self.yUnitWidget = ttk.Entry(paramsFrame, width=10, textvariable=self.yUnit)
-        self.yUnitWidget.grid(row=2, column=1, sticky="w")
+        self.yUnitWidget.grid(row=1, column=1, sticky="w")
 
         self.xQuantityLabel = ttk.Label(
             paramsFrame, text="Continuous signals x-axis quantity:"
         )
-        self.xQuantityLabel.grid(row=3, column=0, sticky="w")
+        self.xQuantityLabel.grid(row=2, column=0, sticky="w")
         self.xUnitLabel = ttk.Label(paramsFrame, text="Unit:")
-        self.xUnitLabel.grid(row=3, column=1, sticky="w")
+        self.xUnitLabel.grid(row=2, column=1, sticky="w")
         self.xQuantity = tk.StringVar(self)
         self.xUnit = tk.StringVar(self)
         self.xQuantityWidget = ttk.Entry(paramsFrame, textvariable=self.xQuantity)
-        self.xQuantityWidget.grid(row=4, column=0, sticky="w")
+        self.xQuantityWidget.grid(row=3, column=0, sticky="w")
         self.xUnitWidget = ttk.Entry(paramsFrame, width=10, textvariable=self.xUnit)
-        self.xUnitWidget.grid(row=4, column=1, sticky="w")
-
-    def toggleContinuous(self, *args, **kwargs):
-        state = ["!disabled"] if self.continuous.get() else ["disabled"]
-        for param in Params._fields[-2:]:
-            getattr(self, param + "Widget").state(state)
+        self.xUnitWidget.grid(row=3, column=1, sticky="w")
 
     def setParams(self, selection):
         params = predefinedParams[selection]
@@ -396,31 +380,23 @@ def readCSV(filePath):
         elif popup.hasAdditionTitles:
             titration.additionTitles = data[:, 0]
             titration.signalTitles = np.array(
-                ["Signal " + str(i) for i in data.shape[1]]
+                ["Signal " + str(i + 1) for i in range(data.shape[1] - 1)]
             )
             titration.rawData = data[:, 1:].astype(float)
         elif popup.hasSignalTitles:
             titration.additionTitles = np.array(
-                ["Addition " + str(i) for i in data.shape[0]]
+                ["Addition " + str(i + 1) for i in range(data.shape[0] - 1)]
             )
             titration.signalTitles = data[0, :]
             titration.rawData = data[1:, :].astype(float)
         else:
             titration.additionTitles = np.array(
-                ["Addition " + str(i) for i in data.shape[0]]
+                ["Addition " + str(i + 1) for i in range(data.shape[0])]
             )
             titration.signalTitles = np.array(
-                ["Signal " + str(i) for i in data.shape[1]]
+                ["Signal " + str(i + 1) for i in range(data.shape[1])]
             )
             titration.rawData = data
-
-    if titration.continuous:
-        titration.signalTitles = titration.signalTitles.astype(float)
-        averageStep = abs(np.average(np.diff(titration.signalTitles)))
-        titration.signalTitlesDecimals = int(-np.rint(np.log10(averageStep)))
-        titration.signalTitles = np.round(
-            titration.signalTitles, titration.signalTitlesDecimals
-        )
 
     return [titration]
 
@@ -502,9 +478,9 @@ def readNMR(filePath):
             currentPlotIntensities[2::3] = currentIntensities
             plotIntensities.append(currentPlotIntensities)
 
-        maxF = max(max(frequencies))
-        minF = min(min(frequencies))
-        maxI = max(max(intensities))
+        maxF = max(max(f) for f in frequencies)
+        minF = min(min(f) for f in frequencies)
+        maxI = max(max(i) for i in intensities)
 
         numRows = len(frequencies)
         fig = Figure()
