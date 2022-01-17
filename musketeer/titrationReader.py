@@ -133,10 +133,8 @@ def readUV(filePath):
 
     titration.additionTitles = np.array(titleRow)
     titration.signalTitles = wavelengths
-
     # transpose data so that the column is the wavelength
     titration.rawData = np.array(absorbances, dtype=float).T
-
     return [titration]
 
 
@@ -235,11 +233,9 @@ def readFluorescence(filePath):
         return df
 
     titrations = []
-
     # for each sample, perform a baseline correction and drop control/blank columns (ie.
     #   PBSonly, ThTonly), and create a Titration object
     for key in df_sep:
-
         # creating titration object
         titration = Titration()
         titration.title = os.path.basename(filePath)
@@ -253,23 +249,22 @@ def readFluorescence(filePath):
         #   "ThTonly"
         blank_cols = [(a[-4:] == "only") for a in df_sep[key].columns]
         df_sep[key].drop(columns=df_sep[key].columns[blank_cols], inplace=True)
-
         # check if the column headings are in the the correct "sx y.yy uL" format. If
         #   not, change the column headings
         if checkTitles(df_sep[key]):
             df_sep[key].columns = changeTitles(df_sep[key])
-
-        # adding data to titration objects
         titration.additionTitles = np.array(df_sep[key].columns)
         titration.signalTitles = wavelengths
+
         averageStep = abs(np.average(np.diff(titration.signalTitles)))
         titration.signalTitlesDecimals = int(-np.rint(np.log10(averageStep)))
         titration.signalTitles = np.round(
             titration.signalTitles, titration.signalTitlesDecimals
         )
-
         # transpose data so that the column is the wavelength
         titration.rawData = np.array(df_sep[key], dtype=float).T
+        print("FLR")
+        print(titration.signalTitles)
         titrations.append(titration)
     return titrations
 
