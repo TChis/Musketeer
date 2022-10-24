@@ -1,11 +1,28 @@
 import numpy as np
-import tkinter as tk
 import tkinter.ttk as ttk
 import tkinter.messagebox as mb
 
 from . import moduleFrame
 from .table import Table, ButtonFrame
 from .scrolledFrame import ScrolledFrame
+
+
+class SpeciationDimerisation(moduleFrame.Strategy):
+    def __init__(self, titration):
+        self.titration = titration
+        titration.freeNames = np.array(["Host"])
+        titration.stoichiometries = np.array([[2]])
+        titration.boundNames = np.array(["H2"])
+
+    def __call__(self, ks, totalConcs, alphas):
+        K = ks[0]
+        Htot = totalConcs.T[0]
+        H = (-1 + np.sqrt(1 + 8 * Htot * K)) / (4 * K)
+        H2 = (1 + 4 * Htot * K - np.sqrt(1 + 8 * Htot * K)) / (8 * K)
+
+        free = np.atleast_2d(H).T
+        bound = np.atleast_2d(H2).T
+        return free, bound
 
 
 class SpeciationHG(moduleFrame.Strategy):
@@ -64,6 +81,7 @@ class SpeciationTable(Table):
             allowBlanks=False,
             rowOptions=("titles", "new", "delete"),
             columnOptions=("titles", "new", "delete"),
+            boldTitles=True,
         )
         for boundName, stoichiometry in zip(boundNames, stoichiometries):
             self.addRow(boundName, stoichiometry)
@@ -72,7 +90,7 @@ class SpeciationTable(Table):
         return int(number)
 
 
-class SpeciationPopup(tk.Toplevel):
+class SpeciationPopup(moduleFrame.Popup):
     def __init__(self, titration, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.titration = titration
@@ -108,6 +126,7 @@ class SpeciationPopup(tk.Toplevel):
         self.titration.freeNames = self.speciationTable.columnTitles
         self.titration.boundNames = self.speciationTable.rowTitles
 
+        self.saved = True
         self.destroy()
 
 
@@ -163,16 +182,8 @@ class SpeciationHG2(SpeciationCOGS):
         titration.boundNames = np.array(["HG", "HG2"])
 
 
-class SpeciationHGAB(SpeciationCOGS):
-    def __init__(self, titration):
-        self.titration = titration
-        titration.freeNames = np.array(["Host", "Guest"])
-        titration.stoichiometries = np.array([[1, 1], [1, 1], [1, 2]])
-        titration.boundNames = np.array(["HGa", "HGb", "HG2"])
-
-
 class SpeciationCustom(SpeciationCOGS):
-    popup = SpeciationPopup
+    Popup = SpeciationPopup
     popupAttributes = ("stoichiometries", "freeNames", "boundNames")
 
 
@@ -181,8 +192,8 @@ class ModuleFrame(moduleFrame.ModuleFrame):
     dropdownLabelText = "Select a binding isotherm:"
     dropdownOptions = {
         "1:1 binding": SpeciationHG,
-        "1:2 binding, identical sites": SpeciationHG2,
-        "1:2 binding, different sites": SpeciationHGAB,
+        "1:2 binding": SpeciationHG2,
+        "Dimerisation": SpeciationDimerisation,
         "Custom": SpeciationCustom,
     }
     attributeName = "speciation"

@@ -23,6 +23,10 @@ class Titration:
         return self.freeCount + self.boundCount
 
     @property
+    def polymerIndices(self):
+        return np.any(self.stoichiometries < 0, 1)
+
+    @property
     def polymerCount(self):
         return np.count_nonzero(self.stoichiometries < 0)
 
@@ -134,6 +138,7 @@ class Titration:
         # to the function as arguments
         ks, alphas = self.getKs(kVars, alphaVars)
         totalConcs = self.getTotalConcs(totalConcVars)
+        self.lastTotalConcs = totalConcs
 
         freeConcs, boundConcs = self.speciation(ks, totalConcs, alphas)
         self.lastFreeConcs, self.lastBoundConcs = freeConcs, boundConcs
