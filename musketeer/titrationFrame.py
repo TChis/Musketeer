@@ -3,10 +3,11 @@ import tkinter as tk
 import tkinter.ttk as ttk
 import tkinter.filedialog as fd
 import packaging.version
+from copy import deepcopy
 
 import numpy as np
 import tksheet
-from scipy.interpolate import interp1d
+from scipy.interpolate import make_interp_spline
 from cycler import cycler
 from ttkbootstrap.widgets import InteractiveNotebook
 import tkinter.messagebox as mb
@@ -87,15 +88,20 @@ class SaveLoadFrame(ttk.Frame):
                 options["moduleNames"], options["dropdownValues"]
             ):
                 if moduleName not in self.moduleFrames:
-                    continue  # TODO
+                    continue
                 moduleFrame = self.moduleFrames[moduleName]
+                if dropdownValue not in moduleFrame.dropdownOptions:
+                    continue
                 moduleFrame.stringVar.set(dropdownValue)
+                moduleFrame.lastValue = dropdownValue
+
                 attributeName = moduleFrame.attributeName
                 Strategy = moduleFrame.dropdownOptions[dropdownValue]
                 strategy = Strategy(self.titration)
                 setattr(self.titration, attributeName, strategy)
                 for attr in strategy.popupAttributes:
-                    # TODO: check if attribute is actually present in options
+                    if attr not in options:
+                        continue
                     attrValue = options[attr]
                     if attrValue.shape == ():
                         attrValue = attrValue.item()
@@ -303,18 +309,22 @@ class TitrationFrame(ttk.Frame):
         nb = ttk.Notebook(self, padding=padding, style="Flat.TNotebook")
         self.notebook.add(nb, text=f"Fit {self.numFits}")
 
+        # TODO: link titrationCopy to options frame as well
+        titrationCopy = deepcopy(self.titration)
+
         if self.titration.continuous:
-            continuousFittedFrame = ContinuousFittedFrame(nb, self.titration)
+            continuousFittedFrame = ContinuousFittedFrame(nb, titrationCopy)
             nb.add(continuousFittedFrame, text="Fitted Spectra")
-            discreteFittedFrame = DiscreteFromContinuousFittedFrame(nb, self.titration)
-            nb.add(
-                discreteFittedFrame, text=f"Fit at select {self.titration.xQuantity}"
-            )
+            discreteFittedFrame = DiscreteFromContinuousFittedFrame(nb, titrationCopy)
+            nb.add(discreteFittedFrame, text=f"Fit at select {titrationCopy.xQuantity}")
         else:
-            discreteFittedFrame = DiscreteFittedFrame(nb, self.titration)
+            discreteFittedFrame = DiscreteFittedFrame(nb, titrationCopy)
             nb.add(discreteFittedFrame, text="Fitted signals")
 
-        resultsFrame = ResultsFrame(nb, self.titration)
+        speciationFrame = SpeciationFrame(nb, titrationCopy)
+        nb.add(speciationFrame, text="Speciation")
+
+        resultsFrame = ResultsFrame(nb, titrationCopy)
         nb.add(resultsFrame, text="Results")
 
         self.notebook.select(str(nb))
@@ -451,8 +461,9 @@ class FittedFrame(ttk.Frame):
         super().__init__(parent, *args, **kwargs)
         self.titration = titration
         self.xQuantity = titration.freeNames[-1]
-        self.xConcs = titration.lastFreeConcs.T[-1]
+        self.xConcs = titration.lastTotalConcs.T[-1]
         self.normalisation = False
+        self.smooth = True
         self.logScale = False
 
     def populate(self):
@@ -490,6 +501,14 @@ class FittedFrame(ttk.Frame):
             style="Outline.Toolbutton",
         )
         self.logScaleButton.pack(pady=padding, fill="x")
+        self.smoothButton = ttk.Checkbutton(
+            self.toggleButtonsFrame,
+            text="Smooth curves",
+            command=self.toggleSmooth,
+            style="Outline.Toolbutton",
+        )
+        self.smoothButton.state(("selected",))
+        self.smoothButton.pack(pady=padding, fill="x")
 
         self.rowconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
@@ -508,6 +527,10 @@ class FittedFrame(ttk.Frame):
             self.ax.set_xscale("linear")
         self.canvas.draw()
 
+    def toggleSmooth(self):
+        self.smooth = not self.smooth
+        self.plot()
+
     def plot(self):
         self.ax.clear()
 
@@ -521,15 +544,20 @@ class FittedFrame(ttk.Frame):
         xConcs = self.xConcs / totalConcentrations.prefixes[xUnit.strip("M")]
 
         if self.normalisation:
-            curves = self.curves.T
-            # get the largest difference from the first point for each signal
+            curves = self.curves.T.copy()
+            fittedCurves = self.fittedCurves.T.copy()
+            # normalise so that all the fitted curves have the same amplitude
+            fittedDiff = self.fittedCurves.T - self.fittedCurves.T[0]
+            maxFittedDiff = np.max(abs(fittedDiff), axis=0)
+            curves = curves / maxFittedDiff
+
             diff = curves - curves[0]
-            maxDiff = np.max(abs(diff), axis=0)
-            curves = curves / maxDiff
+            negatives = abs(np.amin(diff, axis=0)) > abs(np.amax(diff, axis=0))
+            curves[:, negatives] *= -1
             curves = curves.T * 100
 
-            fittedCurves = self.fittedCurves.T
-            fittedCurves = fittedCurves / maxDiff
+            fittedCurves = fittedCurves / maxFittedDiff
+            fittedCurves[:, negatives] *= -1
             fittedCurves = fittedCurves.T * 100
             self.ax.set_ylabel(f"Normalised Δ{titration.yQuantity} / %")
         else:
@@ -543,14 +571,22 @@ class FittedFrame(ttk.Frame):
             fittedCurve -= fittedZero
             self.ax.scatter(xConcs, curve)
 
-            smoothX = np.linspace(xConcs.min(), xConcs.max(), 100)
-            # make sure the smooth curve actually goes through all the fitted
-            # points
-            smoothX = np.unique(np.concatenate((smoothX, xConcs)))
+            # add step - 1 points between each data point
+            step = 10
+            smoothXCount = (xConcs.size - 1) * step + 1
+            smoothX = np.interp(
+                np.arange(smoothXCount), np.arange(smoothXCount, step=step), xConcs
+            )
 
-            # interp1d requires all x values to be unique
+            # make_interp_spline requires all x values to be unique
             filter = np.concatenate((np.diff(xConcs).astype(bool), [True]))
-            spl = interp1d(xConcs[filter], fittedCurve[filter], kind="quadratic")
+            if (not self.smooth) or xConcs[filter].size < 3:
+                # cannot do spline interpolation with fewer than 3 unique x-values
+                self.ax.plot(xConcs, fittedCurve, label=name)
+                continue
+            spl = make_interp_spline(
+                xConcs[filter], fittedCurve[filter], bc_type="natural"
+            )
             smoothY = spl(smoothX)
             self.ax.plot(smoothX, smoothY, label=name)
 
@@ -587,6 +623,146 @@ class DiscreteFromContinuousFittedFrame(FittedFrame):
         self.plot()
 
 
+class SpeciationFrame(ttk.Frame):
+    def __init__(self, parent, titration, *args, **kwargs):
+        super().__init__(parent, *args, **kwargs)
+        self.titration = titration
+        self.xQuantity = titration.freeNames[-1]
+        self.xConcs = titration.lastTotalConcs.T[-1]
+        self.speciesVar = tk.StringVar(self)
+        self.logScale = False
+        self.smooth = True
+        self.populate()
+        self.plot()
+
+    def populate(self):
+        titration = self.titration
+        self.fig = Figure()
+        self.ax = self.fig.add_subplot()
+
+        self.canvas = FigureCanvasTkAgg(self.fig, master=self)
+        self.canvas.draw()
+        self.canvas.get_tk_widget().grid(row=1, column=0, sticky="")
+
+        self.toolbar = NavigationToolbar2Tk(self.canvas, self, pack_toolbar=False)
+        self.toolbar.update()
+        self.toolbar.grid(row=2, column=0, sticky="w", padx=10 * padding)
+
+        self.optionsFrame = ttk.Frame(self)
+        self.optionsFrame.grid(row=1, column=1, sticky="")
+        self.speciesLabel = ttk.Label(
+            self.optionsFrame, anchor="center", justify="center", text="Select species:"
+        )
+        self.speciesLabel.pack(pady=padding, fill="x")
+
+        self.speciesDropdown = ttk.OptionMenu(
+            self.optionsFrame,
+            self.speciesVar,
+            titration.freeNames[0],
+            command=lambda *args: self.plot(),
+            *titration.freeNames,
+            style="primary.Outline.TMenubutton",
+        )
+        self.speciesDropdown.pack()
+        self.logScaleButton = ttk.Checkbutton(
+            self.optionsFrame,
+            text="Logarithmic x axis",
+            command=self.toggleLogScale,
+            style="Outline.Toolbutton",
+        )
+        self.logScaleButton.pack(pady=padding, fill="x")
+        self.smoothButton = ttk.Checkbutton(
+            self.optionsFrame,
+            text="Smooth curves",
+            command=self.toggleSmooth,
+            style="Outline.Toolbutton",
+        )
+        self.smoothButton.state(("selected",))
+        self.smoothButton.pack(pady=padding, fill="x")
+
+        self.rowconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
+        self.rowconfigure(2, weight=1)
+        self.grid_anchor("center")
+
+    def toggleLogScale(self):
+        self.logScale = not self.logScale
+        if self.logScale:
+            self.ax.set_xscale("log")
+        else:
+            self.ax.set_xscale("linear")
+        self.canvas.draw()
+
+    def toggleSmooth(self):
+        self.smooth = not self.smooth
+        self.plot()
+
+    @property
+    def freeIndex(self):
+        return np.where(self.titration.freeNames == self.speciesVar.get())[0][0]
+
+    def plot(self):
+        self.ax.clear()
+
+        titration = self.titration
+
+        # xQuantity and xUnit for the fitted plot. Different from the xQuantity
+        # and xUnit in the titration object, which are used for the input
+        # spectra.
+        totalConcs = titration.lastTotalConcs[:, self.freeIndex]
+        additionsFilter = totalConcs != 0
+        totalConcs = totalConcs[additionsFilter]
+
+        xQuantity = self.xQuantity
+        xUnit = titration.concsUnit
+        xConcs = (
+            self.xConcs[additionsFilter]
+            / totalConcentrations.prefixes[xUnit.strip("M")]
+        )
+
+        freeConcs = titration.lastFreeConcs[additionsFilter, :][:, self.freeIndex]
+        freeName = self.speciesVar.get()
+
+        factor = abs(titration.stoichiometries[:, self.freeIndex])
+        boundFilter = factor.astype(bool)
+
+        boundConcs = titration.lastBoundConcs * factor
+        boundConcs = boundConcs[additionsFilter, :][:, boundFilter]
+        boundNames = titration.boundNames[boundFilter]
+
+        curves = 100 * np.vstack((freeConcs, boundConcs.T)) / totalConcs
+        names = np.append(freeName, boundNames)
+        self.ax.set_ylabel(f"% of {freeName}")
+
+        for curve, name in zip(curves, names):
+            # add step - 1 points between each data point
+            step = 10
+            smoothXCount = (xConcs.size - 1) * step + 1
+            smoothX = np.interp(
+                np.arange(smoothXCount), np.arange(smoothXCount, step=step), xConcs
+            )
+
+            # make_interp_spline requires all x values to be unique
+            filter = np.concatenate((np.diff(xConcs).astype(bool), [True]))
+            if (not self.smooth) or xConcs[filter].size < 3:
+                # cannot do spline interpolation with fewer than 3 unique x-values
+                self.ax.plot(xConcs, curve, label=name)
+                continue
+            spl = make_interp_spline(xConcs[filter], curve[filter], bc_type="natural")
+            smoothY = spl(smoothX)
+            self.ax.plot(smoothX, smoothY, label=name)
+
+        if self.logScale:
+            self.ax.set_xscale("log")
+        else:
+            self.ax.set_xscale("linear")
+        self.ax.set_xlabel(f"[{xQuantity}] / {xUnit}")
+        self.ax.legend()
+        self.fig.tight_layout()
+
+        self.canvas.draw()
+
+
 class ResultsFrame(ttk.Frame):
     def __init__(self, parent, titration, *args, **kwargs):
         super().__init__(parent, *args, **kwargs)
@@ -614,8 +790,8 @@ class ResultsFrame(ttk.Frame):
             ** titration.lastKs[titration.kVarsCount() + titration.getConcVarsCount() :]
         )
 
-        for boundName, k, alpha in zip(self.titration.boundNames, ks, alphas):
-            kTable.addRow(boundName, [np.rint(k), alpha if not np.isnan(alpha) else ""])
+        for kVarName, k, alpha in zip(self.titration.kVarsNames, ks, alphas):
+            kTable.addRow(kVarName, [np.rint(k), alpha if not np.isnan(alpha) else ""])
         kTable.pack(side="top", pady=15)
 
         sheet = tksheet.Sheet(
