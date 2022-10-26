@@ -140,6 +140,29 @@ def readUV(filePath):
     return [titration]
 
 
+def headersToTotalVolume(headers):
+    addition_volumes = []
+    for entry in headers:
+        temp = entry.replace("p", ".")
+        v_split = temp.split("_")
+        addition_volumes.append(float(v_split[-1]))
+
+    tempEntry = 0
+    totVal = 0
+    totVols = []
+    for entry in list(addition_volumes):
+        # if we have two rows of the same volume, means this was a retake.#
+        # Worth flagging this too
+        if entry == tempEntry:
+            pass
+        else:
+            totVal = entry + totVal
+        tempEntry = entry
+        totVols.append(float(totVal))
+    totHeaders = ["TC " + str(s) + " uL" for s in totVols]
+    return totHeaders
+
+
 def readFluorescence(filePath):
     def cleanDataframe(df):
         # get indices of first NaN
@@ -194,29 +217,8 @@ def readFluorescence(filePath):
         outBool[0] = True  # Want to get wavelength data
         return df.iloc[:, outBool]
 
-    def headersToTotalVolume(headers):
-        addition_volumes = []
-        for entry in headers:
-            temp = entry.replace("p", ".")
-            v_split = temp.split("_")
-            addition_volumes.append(float(v_split[-1]))
+        # read in our .csv file
 
-        tempEntry = 0
-        totVal = 0
-        totVols = []
-        for entry in list(addition_volumes):
-            # if we have two rows of the same volume, means this was a retake.#
-            # Worth flagging this too
-            if entry == tempEntry:
-                pass
-            else:
-                totVal = entry + totVal
-            tempEntry = entry
-            totVols.append(float(totVal))
-        totHeaders = ["TC " + str(s) + " uL" for s in totVols]
-        return totHeaders
-
-    # read in our .csv file
     df_input = pd.read_csv(filePath, dtype=str)
     # clean up the df for processing
     cleanDataframe(df_input)
@@ -247,6 +249,68 @@ def readFluorescence(filePath):
         titration.rawData = rawData
 
         titrations.append(titration)
+    return titrations
+
+
+def readProcessedFluorescence(filePath):
+    # get titration headers
+    def getTitrations(df):
+        titrationList = []
+        for header in list(df.columns):
+            elements = header.split("_")
+            # if 2 elements, means a single split is made: form "sXX_YpYY"
+            if len(elements) == 2:
+                iden = elements[0]
+            # if 3 elements, means two splits are made: form "sXX_ZZZ_YpYY"
+            elif len(elements) == 3:
+                iden = str(elements[0]) + "_" + str(elements[1])
+            # if some other number of elements, something funny is going on
+            else:
+                print("unexpected header")
+            # if a header pops up a second time, don't store it
+            if iden in titrationList:
+                pass
+            # save the header if not in the list
+            else:
+                titrationList.append(iden)
+        # return the list of headers
+        return titrationList
+
+    # read in our .csv file
+    df_input = pd.read_csv(filePath, dtype=float)
+
+    # first column are wavelengths
+    wavelengths = df_input.wavelength
+    df_input.set_index("wavelength", inplace=True)
+
+    # get a list of the titrations in the csv
+    titrationList = getTitrations(df_input)
+
+    # store titration data
+    titrations = []
+
+    # go through each titration and get the spectra
+    for key in titrationList:
+        titration = Titration()
+        # get title of titration
+        titration.title = os.path.basename(filePath).split("_")[0] + "_" + key
+        # set default parameters for UV-Vis titrations
+        fillPredefinedParams(titration, predefinedParams["Fluorescence"])
+        # get titration columns
+        titration_columns = [word.startswith(key) for word in df_input.columns]
+        # get addition headers
+        addition_headers = df_input.columns[titration_columns].values
+        # get the titration data
+        rawData = df_input.loc[:, titration_columns].values.T.astype(np.float)
+        signalTitles = wavelengths
+        additionTitles = np.array(headersToTotalVolume(addition_headers))
+
+        titration.additionTitles = additionTitles
+        titration.signalTitles = signalTitles
+        titration.rawData = rawData
+
+        titrations.append(titration)
+
     return titrations
 
 
@@ -568,6 +632,7 @@ def readNMR(filePath):
 fileReaders = {
     "UV-Vis csv file": readUV,
     "NMR peak list": readNMR,
-    "Fluorescence csv file": readFluorescence,
+    "Raw Fluorescence csv file": readFluorescence,
+    "Processed Fluorescence csv file": readProcessedFluorescence,
     "Universal csv file": readCSV,
 }
