@@ -141,13 +141,6 @@ def readUV(filePath):
 
 
 def readFluorescence(filePath):
-    titration = Titration()
-    titration.title = os.path.basename(filePath)
-    # set default parameters for UV-Vis titrations
-    fillPredefinedParams(titration, predefinedParams["Fluorescence"])
-    # -this function cleans up the dataframe
-    # -removes useless rows and the settings information from the 3D ascii file format
-
     def cleanDataframe(df):
         # get indices of first NaN
         y = df.iloc[2:, 0][df.iloc[2:, 0].isna()].index[0]
@@ -224,14 +217,23 @@ def readFluorescence(filePath):
         return totHeaders
 
     # read in our .csv file
-    df_input = pd.read_csv(filePath)
+    df_input = pd.read_csv(filePath, dtype=str)
     # clean up the df for processing
     cleanDataframe(df_input)
     # get list of titration IDs, eg. "s1_PD"
     titrationList = getTitrations(df_input)
 
+    titrations = []
     # for each titration, extract key info
     for key in titrationList:
+        titration = Titration()
+        # get title of titration
+        titration.title = os.path.basename(filePath).split("_")[0] + "_" + key
+        # set default parameters for UV-Vis titrations
+        fillPredefinedParams(titration, predefinedParams["Fluorescence"])
+        # -this function cleans up the dataframe
+        # -removes useless rows and the settings information from the 3D ascii
+        # file format
         df = extractFromDf(df_input, key)
         addition_headers = list(df.columns.values[1:])
         # ignore first column: wavelength data
@@ -240,10 +242,12 @@ def readFluorescence(filePath):
         additionTitles = np.array(headersToTotalVolume(addition_headers))
         rawData = df.iloc[:, 1:].values.T.astype(np.float)
 
-    titration.additionTitles = additionTitles
-    titration.signalTitles = signalTitles
-    titration.rawData = rawData
-    return [titration]
+        titration.additionTitles = additionTitles
+        titration.signalTitles = signalTitles
+        titration.rawData = rawData
+
+        titrations.append(titration)
+    return titrations
 
 
 class CSVPopup(tk.Toplevel):
