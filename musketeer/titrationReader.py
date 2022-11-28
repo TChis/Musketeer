@@ -145,7 +145,14 @@ def headersToTotalVolume(headers):
     for entry in headers:
         temp = entry.replace("p", ".")
         v_split = temp.split("_")
-        addition_volumes.append(float(v_split[-1]))
+        # if there are two '.' in the last entry, split and ditch the last one
+        #     if two measurements of the same volume are made, the headers for these
+        #     columns have incremented with a period, eg. s1_MSA_0p00, s1_MSA_0p00.1
+        dec_check = v_split[-1]
+        dec_split = dec_check.split(".")
+        if len(dec_split) > 2:
+            dec_check = dec_split[0] + "." + dec_split[1]
+        addition_volumes.append(float(dec_check))
 
     tempEntry = 0
     totVal = 0
