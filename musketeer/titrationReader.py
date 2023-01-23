@@ -249,7 +249,7 @@ def readFluorescence(filePath):
         signalTitles = list(df_input.iloc[:, 0])
         # convert addition volumes to cumulative volume titles
         additionTitles = np.array(headersToTotalVolume(addition_headers))
-        rawData = df.iloc[:, 1:].values.T.astype(np.float)
+        rawData = df.iloc[:, 1:].values.T.astype(float)
 
         titration.additionTitles = additionTitles
         titration.signalTitles = signalTitles
@@ -271,6 +271,12 @@ def readProcessedFluorescence(filePath):
             # if 3 elements, means two splits are made: form "sXX_ZZZ_YpYY"
             elif len(elements) == 3:
                 iden = str(elements[0]) + "_" + str(elements[1])
+            # if 4 elements, means three splits are made: form "LIGAND_WELL_FLUOROPHORE_Y.YY"
+            elif len(elements) == 4:
+                iden = str(elements[0]) + "_" + str(elements[1]) + "_" + str(elements[2])
+            # if 5 elements, same case as four should be ok: form "LIGAND_WELL_FLUOROPHORE_Y.YY"
+            elif len(elements) == 5:
+                iden = str(elements[0]) + "_" + str(elements[1]) + "_" + str(elements[2])
             # if some other number of elements, something funny is going on
             else:
                 print("unexpected header")
@@ -308,7 +314,7 @@ def readProcessedFluorescence(filePath):
         # get addition headers
         addition_headers = df_input.columns[titration_columns].values
         # get the titration data
-        rawData = df_input.loc[:, titration_columns].values.T.astype(np.float)
+        rawData = df_input.loc[:, titration_columns].values.T.astype(float)
         signalTitles = wavelengths
         additionTitles = np.array(headersToTotalVolume(addition_headers))
 
